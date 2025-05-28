@@ -2,3 +2,4 @@ session.txt
 node_modules
 .env
 participants.csv
+.vercel

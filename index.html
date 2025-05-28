@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram API Frontend</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: #0088cc;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e1e8ed;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+        
+        .section h3 {
+            margin-bottom: 15px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #dc3545;
+        }
+        
+        .status-indicator.connected {
+            background: #28a745;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+        
+        input, textarea, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        button {
+            background: #0088cc;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        
+        button:hover {
+            background: #0077b3;
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+        
+        .btn-success {
+            background: #28a745;
+        }
+        
+        .btn-success:hover {
+            background: #218838;
+        }
+        
+        .results {
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .participant-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .participant-item:last-child {
+            border-bottom: none;
+        }
+        
+        .message-result {
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .message-result.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .message-result.failed {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📱 Telegram Group Manager</h1>
+            <p>Manage your Telegram groups through a simple web interface</p>
+        </div>
+        
+        <div class="content">
+            <!-- Authentication Section -->
+            <div class="section">
+                <h3>
+                    <span class="status-indicator" id="authStatus"></span>
+                    Authentication Status
+                </h3>
+                <div id="authSection">
+                    <div id="loginForm">
+                        <div class="form-group">
+                            <label for="phoneNumber">Phone Number:</label>
+                            <input type="tel" id="phoneNumber" placeholder="+1234567890" required>
+                        </div>
+                        <button onclick="initiateLogin()">Send Code</button>
+                    </div>
+                    
+                    <div id="verifyForm" class="hidden">
+                        <div class="form-group">
+                            <label for="verificationCode">Verification Code:</label>
+                            <input type="text" id="verificationCode" placeholder="12345" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="password">Password (if 2FA enabled):</label>
+                            <input type="password" id="password" placeholder="Optional">
+                        </div>
+                        <button onclick="verifyCode()">Verify</button>
+                    </div>
+                    
+                    <div id="authenticatedSection" class="hidden">
+                        <p>✅ Successfully authenticated!</p>
+                        <button class="btn-secondary" onclick="disconnect()">Disconnect</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid">
+                <!-- Group Participants Section -->
+                <div class="section">
+                    <h3>👥 Group Participants</h3>
+                    <div class="form-group">
+                        <label for="groupId">Group ID:</label>
+                        <input type="text" id="groupId" placeholder="-1234567890" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="participantLimit">Limit:</label>
+                        <input type="number" id="participantLimit" value="100" min="1" max="1000">
+                    </div>
+                    <button onclick="getParticipants()">Get Participants</button>
+                    <button class="btn-success" onclick="exportParticipants()">Export CSV</button>
+                    
+                    <div id="participantsResults" class="results hidden">
+                        <h4>Participants:</h4>
+                        <div id="participantsList"></div>
+                    </div>
+                </div>
+                
+                <!-- Send Messages Section -->
+                <div class="section">
+                    <h3>💬 Send Messages</h3>
+                    <div class="form-group">
+                        <label for="userIdentifiers">User Identifiers (one per line):</label>
+                        <textarea id="userIdentifiers" rows="4" placeholder="@username1&#10;@username2&#10;123456789"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="messageText">Message:</label>
+                        <textarea id="messageText" rows="3" placeholder="Hello! This is a test message." required></textarea>
+                    </div>
+                    <button onclick="sendMessages()">Send Messages</button>
+                    
+                    <div id="messageResults" class="results hidden">
+                        <h4>Message Results:</h4>
+                        <div id="messageResultsList"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://telegramapi-theta.vercel.app';
+        
+        // Check authentication status on page load
+        window.addEventListener('DOMContentLoaded', checkAuthStatus);
+        
+        async function checkAuthStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/auth/status`);
+                const data = await response.json();
+                updateAuthUI(data.connected);
+            } catch (error) {
+                console.error('Failed to check auth status:', error);
+                updateAuthUI(false);
+            }
+        }
+        
+        function updateAuthUI(isConnected) {
+            const statusIndicator = document.getElementById('authStatus');
+            const loginForm = document.getElementById('loginForm');
+            const verifyForm = document.getElementById('verifyForm');
+            const authenticatedSection = document.getElementById('authenticatedSection');
+            
+            if (isConnected) {
+                statusIndicator.classList.add('connected');
+                loginForm.classList.add('hidden');
+                verifyForm.classList.add('hidden');
+                authenticatedSection.classList.remove('hidden');
+            } else {
+                statusIndicator.classList.remove('connected');
+                loginForm.classList.remove('hidden');
+                verifyForm.classList.add('hidden');
+                authenticatedSection.classList.add('hidden');
+            }
+        }
+        
+        async function initiateLogin() {
+            const phoneNumber = document.getElementById('phoneNumber').value;
+            if (!phoneNumber) {
+                alert('Please enter your phone number');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('loginForm').classList.add('hidden');
+                    document.getElementById('verifyForm').classList.remove('hidden');
+                    alert('Verification code sent to your phone!');
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Failed to send code: ' + error.message);
+            }
+        }
+        
+        async function verifyCode() {
+            const phoneNumber = document.getElementById('phoneNumber').value;
+            const code = document.getElementById('verificationCode').value;
+            const password = document.getElementById('password').value;
+            
+            if (!code) {
+                alert('Please enter the verification code');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/auth/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber, code, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateAuthUI(true);
+                    alert('Authentication successful!');
+                } else {
+                    alert('Verification failed: ' + data.error);
+                }
+            } catch (error) {
+                alert('Verification failed: ' + error.message);
+            }
+        }
+        
+        async function disconnect() {
+            try {
+                const response = await fetch(`${API_BASE}/auth/disconnect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ clearSession: true })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateAuthUI(false);
+                    alert('Disconnected successfully!');
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Failed to disconnect: ' + error.message);
+            }
+        }
+        
+        async function getParticipants() {
+            const groupId = document.getElementById('groupId').value;
+            const limit = document.getElementById('participantLimit').value;
+            
+            if (!groupId) {
+                alert('Please enter a group ID');
+                return;
+            }
+            
+            const resultsDiv = document.getElementById('participantsResults');
+            const listDiv = document.getElementById('participantsList');
+            
+            resultsDiv.classList.remove('hidden');
+            listDiv.innerHTML = '<div class="loading">Loading participants...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/groups/${encodeURIComponent(groupId)}/participants?limit=${limit}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    listDiv.innerHTML = '';
+                    data.participants.forEach(participant => {
+                        const item = document.createElement('div');
+                        item.className = 'participant-item';
+                        item.innerHTML = `
+                            <div>
+                                <strong>${participant.first_name || ''} ${participant.last_name || ''}</strong>
+                                ${participant.username ? `@${participant.username}` : ''}
+                            </div>
+                            <div>ID: ${participant.id}</div>
+                        `;
+                        listDiv.appendChild(item);
+                    });
+                    
+                    if (data.participants.length === 0) {
+                        listDiv.innerHTML = '<p>No participants found.</p>';
+                    }
+                } else {
+                    listDiv.innerHTML = `<p>Error: ${data.error}</p>`;
+                }
+            } catch (error) {
+                listDiv.innerHTML = `<p>Failed to get participants: ${error.message}</p>`;
+            }
+        }
+        
+        async function exportParticipants() {
+            const groupId = document.getElementById('groupId').value;
+            const limit = document.getElementById('participantLimit').value;
+            
+            if (!groupId) {
+                alert('Please enter a group ID');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/groups/${encodeURIComponent(groupId)}/participants/export?limit=${limit}`);
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `participants_${groupId}_${Date.now()}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                } else {
+                    const data = await response.json();
+                    alert('Export failed: ' + data.error);
+                }
+            } catch (error) {
+                alert('Export failed: ' + error.message);
+            }
+        }
+        
+        async function sendMessages() {
+            const userIdentifiersText = document.getElementById('userIdentifiers').value;
+            const messageText = document.getElementById('messageText').value;
+            
+            if (!userIdentifiersText || !messageText) {
+                alert('Please enter user identifiers and message text');
+                return;
+            }
+            
+            const userIdentifiers = userIdentifiersText.split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+            
+            const resultsDiv = document.getElementById('messageResults');
+            const listDiv = document.getElementById('messageResultsList');
+            
+            resultsDiv.classList.remove('hidden');
+            listDiv.innerHTML = '<div class="loading">Sending messages...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/messages/send`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userIdentifiers, message: messageText })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    listDiv.innerHTML = `
+                        <p><strong>Summary:</strong> ${data.summary.successful} successful, ${data.summary.failed} failed</p>
+                    `;
+                    
+                    data.results.forEach(result => {
+                        const item = document.createElement('div');
+                        item.className = `message-result ${result.status}`;
+                        item.innerHTML = `
+                            <strong>${result.userIdentifier}</strong>: ${result.status}
+                            ${result.error ? `<br><small>${result.error}</small>` : ''}
+                        `;
+                        listDiv.appendChild(item);
+                    });
+                } else {
+                    listDiv.innerHTML = `<p>Error: ${data.error}</p>`;
+                }
+            } catch (error) {
+                listDiv.innerHTML = `<p>Failed to send messages: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
