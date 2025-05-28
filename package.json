@@ -1,0 +1,37 @@
+{
+  "name": "get-telegram-group-users",
+  "version": "1.0.0",
+  "description": "This script retrieves the list of members from a specified Telegram group and saves the data in CSV format.",
+  "main": "script.js",
+  "scripts": {
+    "start": "node script.js"
+  },
+  "keywords": [
+    "telegram",
+    "group",
+    "users",
+    "members",
+    "csv"
+  ],
+  "author": "Vladimir Lazić <contact@vlazic.com> (https://vlazic.com/)",
+  "license": "MIT",
+  "dependencies": {
+    "@gooddollar/goodcollective-sdk": "^1.3.6",
+    "dotenv": "16.3.1",
+    "ethers": "^5.8.0",
+    "input": "1.0.1",
+    "json2csv": "6.0.0-alpha.2",
+    "telegram": "2.17.10"
+  },
+  "volta": {
+    "node": "16.20.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vlazic/get-telegram-group-users.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vlazic/get-telegram-group-users/issues"
+  },
+  "homepage": "https://github.com/vlazic/get-telegram-group-users#readme"
+}
