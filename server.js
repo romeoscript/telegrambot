@@ -25,8 +25,14 @@ const apiId = parseInt(process.env.API_ID);
 const apiHash = process.env.API_HASH;
 const sessionFile = "session.txt";
 
-// Global client instance
+// Global client instance and pending auth data
 let telegramClient = null;
+let pendingAuth = {
+  phoneNumber: null,
+  client: null,
+  resolve: null,
+  reject: null
+};
 
 // Helper function to get or create Telegram client
 async function getTelegramClient() {
@@ -77,18 +83,52 @@ app.post('/auth/login', async (req, res) => {
 
     const client = await getTelegramClient();
     
+    // Store auth state for the verification step
+    pendingAuth.phoneNumber = phoneNumber;
+    pendingAuth.client = client;
+
+    // Start the auth process with proper promise handling
+    const authPromise = new Promise((resolve, reject) => {
+      pendingAuth.resolve = resolve;
+      pendingAuth.reject = reject;
+    });
+
     // Start the authentication process
-    await client.start({
+    client.start({
       phoneNumber: async () => phoneNumber,
       phoneCode: async () => {
-        // This will be handled in a separate endpoint
-        throw new Error('CODE_REQUIRED');
+        // This will be provided later via the verify endpoint
+        return new Promise((resolve, reject) => {
+          pendingAuth.codeResolve = resolve;
+          pendingAuth.codeReject = reject;
+        });
       },
       password: async () => {
-        throw new Error('PASSWORD_REQUIRED');
+        // This will be provided later via the verify endpoint
+        return new Promise((resolve, reject) => {
+          pendingAuth.passwordResolve = resolve;
+          pendingAuth.passwordReject = reject;
+        });
       },
-      onError: (err) => console.log(err),
+      onError: (err) => {
+        console.log('Auth error:', err);
+        if (pendingAuth.reject) {
+          pendingAuth.reject(err);
+        }
+      },
+    }).then(() => {
+      if (pendingAuth.resolve) {
+        pendingAuth.resolve();
+      }
+    }).catch((err) => {
+      if (pendingAuth.reject) {
+        pendingAuth.reject(err);
+      }
     });
+
+    // Don't wait for the full auth process, just confirm code was sent
+    // Give it a moment to send the code
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     res.json({ 
       success: true,
@@ -97,51 +137,104 @@ app.post('/auth/login', async (req, res) => {
     });
 
   } catch (error) {
-    if (error.message === 'CODE_REQUIRED') {
-      res.json({ 
-        success: true,
-        message: 'Please provide the verification code',
-        requiresCode: true
-      });
-    } else {
-      res.status(500).json({ 
-        error: error.message,
-        success: false 
-      });
-    }
+    console.error('Login error:', error);
+    res.status(500).json({ 
+      error: error.message,
+      success: false 
+    });
   }
 });
 
 // Verify code endpoint
 app.post('/auth/verify', async (req, res) => {
   try {
-    const { phoneNumber, code, password } = req.body;
+    const { code, password } = req.body;
     
-    if (!phoneNumber || !code) {
+    if (!code) {
       return res.status(400).json({ 
-        error: 'Phone number and code are required',
+        error: 'Verification code is required',
         success: false 
       });
     }
 
-    const client = await getTelegramClient();
-    
-    await client.start({
-      phoneNumber: async () => phoneNumber,
-      phoneCode: async () => code,
-      password: async () => password || '',
-      onError: (err) => console.log(err),
-    });
+    if (!pendingAuth.phoneNumber || !pendingAuth.client) {
+      return res.status(400).json({ 
+        error: 'No pending authentication. Please call /auth/login first.',
+        success: false 
+      });
+    }
 
-    saveSession(client);
+    // Provide the code to the waiting auth process
+    if (pendingAuth.codeResolve) {
+      pendingAuth.codeResolve(code);
+    }
 
-    res.json({ 
-      success: true,
-      message: 'Authentication successful',
-      connected: client.connected
-    });
+    // If password is provided, set up password resolver
+    if (password && pendingAuth.passwordResolve) {
+      pendingAuth.passwordResolve(password);
+    }
+
+    // Wait for the auth process to complete
+    try {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Authentication timeout'));
+        }, 30000); // 30 second timeout
+
+        const originalResolve = pendingAuth.resolve;
+        const originalReject = pendingAuth.reject;
+
+        pendingAuth.resolve = () => {
+          clearTimeout(timeout);
+          resolve();
+        };
+
+        pendingAuth.reject = (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        };
+      });
+
+      saveSession(pendingAuth.client);
+
+      // Clear pending auth
+      pendingAuth = {
+        phoneNumber: null,
+        client: null,
+        resolve: null,
+        reject: null
+      };
+
+      res.json({ 
+        success: true,
+        message: 'Authentication successful',
+        connected: telegramClient.connected
+      });
+
+    } catch (error) {
+      // Check if we need password
+      if (error.message && error.message.includes('password')) {
+        res.status(400).json({ 
+          error: 'Two-factor authentication password is required',
+          success: false,
+          requiresPassword: true
+        });
+      } else {
+        throw error;
+      }
+    }
 
   } catch (error) {
+    console.error('Verify error:', error);
+    
+    // Clear pending auth on error
+    pendingAuth = {
+      phoneNumber: null,
+      client: null,
+      resolve: null,
+      reject: null
+    };
+
     res.status(500).json({ 
       error: error.message,
       success: false 
@@ -153,25 +246,32 @@ app.post('/auth/verify', async (req, res) => {
 app.get('/auth/status', async (req, res) => {
   try {
     const client = await getTelegramClient();
-    const isConnected = client.connected;
     
-    if (!isConnected && fs.existsSync(sessionFile)) {
+    let isConnected = false;
+    
+    if (!client.connected && fs.existsSync(sessionFile)) {
       try {
         await client.connect();
+        // For telegram library, connected usually means authenticated
+        isConnected = client.connected;
       } catch (error) {
         console.log("Could not reconnect with saved session");
       }
+    } else if (client.connected) {
+      isConnected = true;
     }
 
     res.json({ 
-      connected: client.connected,
-      sessionExists: fs.existsSync(sessionFile)
+      connected: isConnected,
+      sessionExists: fs.existsSync(sessionFile),
+      pendingAuth: !!pendingAuth.phoneNumber
     });
 
   } catch (error) {
     res.json({ 
       connected: false,
       sessionExists: fs.existsSync(sessionFile),
+      pendingAuth: !!pendingAuth.phoneNumber,
       error: error.message
     });
   }
@@ -394,6 +494,14 @@ app.post('/auth/disconnect', async (req, res) => {
       await telegramClient.disconnect();
     }
     
+    // Clear pending auth
+    pendingAuth = {
+      phoneNumber: null,
+      client: null,
+      resolve: null,
+      reject: null
+    };
+    
     // Optionally remove session file
     if (req.body.clearSession && fs.existsSync(sessionFile)) {
       fs.unlinkSync(sessionFile);
@@ -438,9 +546,14 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Telegram API Server running on port ${PORT}`);
-  console.log(`📍 Health check: http://localhost:${PORT}/health`);
-});
+// For Vercel deployment, export the app
+if (process.env.VERCEL) {
+  module.exports = app;
+} else {
+  app.listen(PORT, () => {
+    console.log(`🚀 Telegram API Server running on port ${PORT}`);
+    console.log(`📍 Health check: http://localhost:${PORT}/health`);
+  });
+}
 
 module.exports = app;
